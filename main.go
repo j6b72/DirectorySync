@@ -38,19 +38,23 @@ func main() {
 
 	baseDirs := []BaseDirectory{{path: "./left"}, {path: "./right"}}
 
+	// Get information
+
 	allDirectories, allFiles, err := indexFiles(baseDirs)
 	if err != nil {
 		log.Fatalf("Error while indexing directory: %v", err)
-	}
-	err = careAboutDirectories(baseDirs, allDirectories)
-	if err != nil {
-		log.Fatalf("Error while caring about directories: %v", err)
 	}
 	_, err = compareFiles(baseDirs, allFiles)
 	if err != nil {
 		log.Fatalf("Could not compare files: %v", err)
 	}
 
+	// Take action
+
+	err = careAboutDirectories(baseDirs, allDirectories)
+	if err != nil {
+		log.Fatalf("Error while caring about directories: %v", err)
+	}
 	//actions, err := actAccording(compared)
 	//if err != nil { log.Fatalf("Could not perform actions: %v", err) }
 }

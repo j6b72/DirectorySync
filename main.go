@@ -1,7 +1,10 @@
 package main
 
 import (
+	"crypto/md5"
+	"errors"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
@@ -10,26 +13,32 @@ import (
 // TODO: Add skipping a dir / file when error occurs
 
 type File struct {
-	baseDir baseDirectory
+	baseDir BaseDirectory
 	path    string
 	mode    os.FileMode
+}
+
+type CheckedFile struct {
+	actOn    []BaseDirectory
+	file     File
+	checksum string
 }
 
 type Directory struct {
-	baseDir baseDirectory
+	baseDir BaseDirectory
 	path    string
 	mode    os.FileMode
 }
 
-type baseDirectory struct {
+type BaseDirectory struct {
 	path string
 }
 
 func main() {
 
-	baseDirs := []baseDirectory{{path: "./left"}, {path: "./right"}}
+	baseDirs := []BaseDirectory{{path: "./left"}, {path: "./right"}}
 
-	allDirectories, _, err := indexFiles(baseDirs)
+	allDirectories, allFiles, err := indexFiles(baseDirs)
 	if err != nil {
 		log.Fatalf("Error while indexing directory: %v", err)
 	}
@@ -37,13 +46,79 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error while caring about directories: %v", err)
 	}
-	//compared, err := compareFiles(allFiles)
-	//if err != nil { log.Fatalf(err) }
-	//actions, err := performActions(compared)
-	//if err != nil { log.Fatalf(err) }
+	_, err = compareFiles(baseDirs, allFiles)
+	if err != nil {
+		log.Fatalf("Could not compare files: %v", err)
+	}
+
+	//actions, err := actAccording(compared)
+	//if err != nil { log.Fatalf("Could not perform actions: %v", err) }
 }
 
-func careAboutDirectories(baseDirs []baseDirectory, directories []Directory) error {
+func compareFiles(baseDirs []BaseDirectory, files []File) ([]CheckedFile, error) {
+	var checkedFiles []CheckedFile
+	for _, file := range files {
+		mainFilePath := fmt.Sprintf("%v%v", file.baseDir.path, file.path)
+		var actOn []BaseDirectory
+		mainFileChecksum, err := checksumFile(mainFilePath)
+		if err != nil {
+			return nil, errors.New(fmt.Sprintf("Could not generate main file checksum [%v]: %v", mainFilePath, err))
+		}
+		mainFileInfo, err := os.Stat(mainFilePath)
+		if err != nil {
+			return nil, errors.New(fmt.Sprintf("Could not get main file info [%v]: %v", mainFilePath, err))
+		}
+		for _, baseDir := range baseDirs {
+			if baseDir != file.baseDir {
+				baseFilePath := fmt.Sprintf("%v%v", baseDir.path, file.path)
+				_, err := os.Open(baseFilePath)
+				if err != nil {
+					if os.IsNotExist(err) {
+						actOn = append(actOn, baseDir)
+						continue
+					} else {
+						return nil, errors.New(fmt.Sprintf("Could not open baseDir-specific file [%v]: %v", baseFilePath, err))
+					}
+				}
+				baseFileChecksum, err := checksumFile(baseFilePath)
+				if err != nil {
+					return nil, errors.New(fmt.Sprintf("Could not generate checksum for baseDir-specific file [%v]: %v", baseFileChecksum, err))
+				}
+				if baseFileChecksum == mainFileChecksum {
+					continue
+				}
+
+				baseFileInfo, err := os.Stat(baseFilePath)
+				if err != nil {
+					return nil, errors.New(fmt.Sprintf("Could not get main file info [%v]: %v", mainFilePath, err))
+				}
+
+				if mainFileInfo.ModTime().Nanosecond() < baseFileInfo.ModTime().Nanosecond() {
+					actOn = append(actOn, baseDir)
+				}
+			}
+		}
+		checkedFiles = append(checkedFiles, CheckedFile{
+			actOn:    actOn,
+			file:     file,
+			checksum: mainFileChecksum,
+		})
+		// checksumFile()
+	}
+	return checkedFiles, nil
+}
+
+func checksumFile(path string) (string, error) {
+	f, err := os.Open(path)
+	h := md5.New()
+	_, err = io.Copy(h, f)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+func careAboutDirectories(baseDirs []BaseDirectory, directories []Directory) error {
 	for _, dir := range directories {
 		for _, baseDir := range baseDirs {
 			if baseDir != dir.baseDir {
@@ -60,7 +135,7 @@ func careAboutDirectories(baseDirs []baseDirectory, directories []Directory) err
 	return nil
 }
 
-func indexDirectory(baseDir baseDirectory, path string) ([]Directory, []File, error) {
+func indexDirectory(baseDir BaseDirectory, path string) ([]Directory, []File, error) {
 	var allDirectories []Directory
 	var allFiles []File
 	dirContent, err := ioutil.ReadDir(path)
@@ -92,7 +167,7 @@ func indexDirectory(baseDir baseDirectory, path string) ([]Directory, []File, er
 	return allDirectories, allFiles, nil
 }
 
-func indexFiles(baseDirectories []baseDirectory) ([]Directory, []File, error) {
+func indexFiles(baseDirectories []BaseDirectory) ([]Directory, []File, error) {
 	var allDirectories []Directory
 	var allFiles []File
 	for _, baseDir := range baseDirectories {

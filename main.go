@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/md5"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -9,8 +10,6 @@ import (
 	"log"
 	"os"
 )
-
-// TODO: Add skipping a dir / file when error occurs
 
 type File struct {
 	baseDir BaseDirectory
@@ -34,17 +33,25 @@ type BaseDirectory struct {
 	path string
 }
 
+type Configuration struct {
+	Locations []string
+}
+
 func main() {
+	// Gather information
 
-	baseDirs := []BaseDirectory{{path: "./left"}, {path: "./right"}}
+	configuration, err := loadFromConfiguration()
+	if err != nil {
+		log.Fatalf("Could not load from configuration: %v", err)
+	}
 
-	// Get information
+	baseDirs := getBaseDirectories(configuration.Locations)
 
 	allDirectories, allFiles, err := indexFiles(baseDirs)
 	if err != nil {
 		log.Fatalf("Error while indexing directory: %v", err)
 	}
-	_, err = compareFiles(baseDirs, allFiles)
+	compared, err := compareFiles(baseDirs, allFiles)
 	if err != nil {
 		log.Fatalf("Could not compare files: %v", err)
 	}
@@ -55,8 +62,103 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error while caring about directories: %v", err)
 	}
-	//actions, err := actAccording(compared)
-	//if err != nil { log.Fatalf("Could not perform actions: %v", err) }
+	err = actAccording(compared)
+	if err != nil {
+		log.Fatalf("Could not perform actions: %v", err)
+	}
+}
+
+func getBaseDirectories(locations []string) []BaseDirectory {
+	var baseDirectories []BaseDirectory
+	for _, location := range locations {
+		baseDirectories = append(baseDirectories, BaseDirectory{path: location})
+	}
+	return baseDirectories
+}
+
+func loadFromConfiguration() (Configuration, error) {
+	opened, err := os.Open("configuration.json")
+	if err != nil {
+		return Configuration{}, err
+	}
+	decoder := json.NewDecoder(opened)
+	var returnable Configuration
+	err = decoder.Decode(&returnable)
+	if err != nil {
+		return Configuration{}, err
+	}
+	return returnable, err
+}
+
+func actAccording(compared []CheckedFile) error {
+	for _, checkedFile := range compared {
+		checkedFilePath := fmt.Sprintf("%v%v", checkedFile.file.baseDir.path, checkedFile.file.path)
+		for _, place := range checkedFile.actOn {
+			placeFilePath := fmt.Sprintf("%v%v", place.path, checkedFile.file.path)
+			err := copyFile(checkedFilePath, placeFilePath)
+			log.Printf("Copied file %v to %v\n", checkedFilePath, placeFilePath)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func copyFile(from string, to string) error {
+	fromExists, err := fileExists(from)
+	if err != nil {
+		return err
+	}
+	toExists, err := fileExists(to)
+	if err != nil {
+		return err
+	}
+
+	if !fromExists {
+		return errors.New(fmt.Sprintf("Origin file (%v) does not exist.", from))
+	}
+	if toExists {
+		err := os.Remove(to)
+		if err != nil {
+			return err
+		}
+	}
+
+	fromOpen, err := os.Open(from)
+	defer fromOpen.Close()
+	if err != nil {
+		return err
+	}
+	stat, err := fromOpen.Stat()
+	if err != nil {
+		return err
+	}
+
+	toOpen, err := os.OpenFile(to, os.O_RDWR|os.O_CREATE, stat.Mode())
+	defer toOpen.Close()
+	if err != nil {
+		return err
+	}
+
+	_, err = io.Copy(toOpen, fromOpen)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func fileExists(path string) (bool, error) {
+	test, err := os.Open(path)
+	defer test.Close()
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
 }
 
 func compareFiles(baseDirs []BaseDirectory, files []File) ([]CheckedFile, error) {
@@ -97,7 +199,7 @@ func compareFiles(baseDirs []BaseDirectory, files []File) ([]CheckedFile, error)
 					return nil, errors.New(fmt.Sprintf("Could not get main file info [%v]: %v", mainFilePath, err))
 				}
 
-				if mainFileInfo.ModTime().Nanosecond() < baseFileInfo.ModTime().Nanosecond() {
+				if mainFileInfo.ModTime().After(baseFileInfo.ModTime()) {
 					actOn = append(actOn, baseDir)
 				}
 			}
@@ -107,7 +209,6 @@ func compareFiles(baseDirs []BaseDirectory, files []File) ([]CheckedFile, error)
 			file:     file,
 			checksum: mainFileChecksum,
 		})
-		// checksumFile()
 	}
 	return checkedFiles, nil
 }

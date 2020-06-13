@@ -71,6 +71,10 @@ func main() {
 func getBaseDirectories(locations []string) []BaseDirectory {
 	var baseDirectories []BaseDirectory
 	for _, location := range locations {
+		locRunes := []rune(location)
+		if locRunes[len(locRunes)-1] == '/' || locRunes[len(locRunes)-1] == '\\' {
+			location = string(locRunes[:len(locRunes)-1])
+		}
 		baseDirectories = append(baseDirectories, BaseDirectory{path: location})
 	}
 	return baseDirectories

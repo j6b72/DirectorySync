@@ -279,12 +279,13 @@ func careAboutDirectories(baseDirs []BaseDirectory, directories []Directory) err
 		for _, dir := range directoryHeight {
 			for _, baseDir := range baseDirs {
 				if baseDir != dir.baseDir {
-					dirPath := fmt.Sprintf("%v/%v", baseDir.path, dir.path)
+					dirPath := fmt.Sprintf("%v%v", baseDir.path, dir.path)
 					if _, err := os.Stat(dirPath); os.IsNotExist(err) {
 						err = os.Mkdir(dirPath, dir.mode)
 						if err != nil {
 							return err
 						}
+						log.Printf("Created directory in %v\n", dirPath)
 					}
 				}
 			}

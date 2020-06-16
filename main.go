@@ -2,7 +2,6 @@ package main
 
 import (
 	"crypto/md5"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -34,10 +33,6 @@ type BaseDirectory struct {
 	path string
 }
 
-type Configuration struct {
-	Locations []string
-}
-
 type CommandLineArguments struct {
 	Help        bool
 	Directories []string
@@ -47,8 +42,6 @@ type CommandLineArguments struct {
 func main() {
 	// Get main information
 
-	var baseDirs []BaseDirectory
-
 	args, err := parseCommandLineArguments()
 	if err != nil {
 		log.Fatal(err)
@@ -57,16 +50,7 @@ func main() {
 		displayHelp()
 		return
 	}
-	if args.ConfigFile != "" {
-		configuration, err := loadFromConfiguration(args.ConfigFile)
-		if err != nil {
-			log.Fatalf("Could not load from configuration: %v", err)
-		}
-		baseDirs = getBaseDirectories(configuration.Locations)
-	}
-	if len(args.Directories) != 0 {
-		baseDirs = append(baseDirs, getBaseDirectories(args.Directories)...)
-	}
+	baseDirs := getBaseDirectories(args.Directories)
 
 	// Index and compare
 
@@ -94,13 +78,11 @@ func main() {
 func displayHelp() {
 	fmt.Printf("Help for DirectorySync, a simple tool for keeping files and folders in multiple locations synchronized\n" +
 		"The full source code is available on https://github.com/j6b72/DirectorySync\n" +
-		"A sample configuration.json is available on https://raw.githubusercontent.com/j6b72/DirectorySync/master/configuration.json\n" +
 		"\n" +
 		"Usage: directorysync [options] \n" +
 		"\n" +
 		"  -h, --help                  Display this help\n" +
-		"  -d, --directory <directory> Add a directory to be synchronized with the others\n" +
-		"  -c, --config-file <file>    Don't use the configuration.json file and in exchange use the given one\n")
+		"  -d, --directory <directory> Add a directory to be synchronized with the others\n")
 }
 
 func parseCommandLineArguments() (CommandLineArguments, error) {
@@ -119,18 +101,11 @@ func parseCommandLineArguments() (CommandLineArguments, error) {
 			fallthrough
 		case "--directory":
 			waitingFor = "directory"
-		case "-c":
-			fallthrough
-		case "--config-file":
-			waitingFor = "config-file"
 		default:
 			switch waitingFor {
 			case "directory":
 				waitingFor = ""
 				returnArgs.Directories = append(returnArgs.Directories, arg)
-			case "config-file":
-				waitingFor = ""
-				returnArgs.ConfigFile = arg
 			default:
 				return CommandLineArguments{}, errors.New(fmt.Sprintf("Unknown argument: %v", arg))
 			}
@@ -149,20 +124,6 @@ func getBaseDirectories(locations []string) []BaseDirectory {
 		baseDirectories = append(baseDirectories, BaseDirectory{path: location})
 	}
 	return baseDirectories
-}
-
-func loadFromConfiguration(configFile string) (Configuration, error) {
-	opened, err := os.Open(configFile)
-	if err != nil {
-		return Configuration{}, err
-	}
-	decoder := json.NewDecoder(opened)
-	var returnable Configuration
-	err = decoder.Decode(&returnable)
-	if err != nil {
-		return Configuration{}, err
-	}
-	return returnable, err
 }
 
 func actAccording(compared []CheckedFile) error {
@@ -201,6 +162,7 @@ func copyFile(from string, to string) error {
 	}
 
 	fromOpen, err := os.Open(from)
+	//noinspection ALL
 	defer fromOpen.Close()
 	if err != nil {
 		return err
@@ -211,6 +173,7 @@ func copyFile(from string, to string) error {
 	}
 
 	toOpen, err := os.OpenFile(to, os.O_RDWR|os.O_CREATE, stat.Mode())
+	//noinspection ALL
 	defer toOpen.Close()
 	if err != nil {
 		return err
@@ -226,6 +189,7 @@ func copyFile(from string, to string) error {
 
 func fileExists(path string) (bool, error) {
 	test, err := os.Open(path)
+	//noinspection ALL
 	defer test.Close()
 	if err != nil {
 		if os.IsNotExist(err) {

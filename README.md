@@ -25,10 +25,7 @@ Usage: directorysync [options]
 
   -h, --help                  Display this help
   -d, --directory <directory> Add a directory to be synchronized with the others
-  -c, --config-file <file>    Don't use the configuration.json file and in exchange use the given one
 ```
-
-A sample configuration file is included in this repository named "configuration.json".
 
 ## What the tool can't do (yet?)
 

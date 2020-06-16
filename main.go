@@ -9,6 +9,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strings"
 )
 
 type File struct {
@@ -37,15 +38,37 @@ type Configuration struct {
 	Locations []string
 }
 
-func main() {
-	// Gather information
+type CommandLineArguments struct {
+	Help        bool
+	Directories []string
+	ConfigFile  string
+}
 
-	configuration, err := loadFromConfiguration()
+func main() {
+	// Get main information
+
+	var baseDirs []BaseDirectory
+
+	args, err := parseCommandLineArguments()
 	if err != nil {
-		log.Fatalf("Could not load from configuration: %v", err)
+		log.Fatal(err)
+	}
+	if args.Help {
+		displayHelp()
+		return
+	}
+	if args.ConfigFile != "" {
+		configuration, err := loadFromConfiguration(args.ConfigFile)
+		if err != nil {
+			log.Fatalf("Could not load from configuration: %v", err)
+		}
+		baseDirs = getBaseDirectories(configuration.Locations)
+	}
+	if len(args.Directories) != 0 {
+		baseDirs = append(baseDirs, getBaseDirectories(args.Directories)...)
 	}
 
-	baseDirs := getBaseDirectories(configuration.Locations)
+	// Index and compare
 
 	allDirectories, allFiles, err := indexFiles(baseDirs)
 	if err != nil {
@@ -68,6 +91,54 @@ func main() {
 	}
 }
 
+func displayHelp() {
+	fmt.Printf("Help for DirectorySync, a simple tool for keeping files and folders in multiple locations synchronized\n" +
+		"The full source code is available on https://github.com/j6b72/DirectorySync\n" +
+		"A sample configuration.json is available on https://raw.githubusercontent.com/j6b72/DirectorySync/master/configuration.json\n" +
+		"\n" +
+		"Usage: directorysync [options] \n" +
+		"\n" +
+		"  -h, --help                  Display this help\n" +
+		"  -d, --directory <directory> Add a directory to be synchronized with the others\n" +
+		"  -c, --config-file <file>    Don't use the configuration.json file and in exchange use the given one\n")
+}
+
+func parseCommandLineArguments() (CommandLineArguments, error) {
+	var returnArgs CommandLineArguments
+	var waitingFor string
+	for i, arg := range os.Args {
+		if i == 0 {
+			continue
+		}
+		switch arg {
+		case "-h":
+			fallthrough
+		case "--help":
+			returnArgs.Help = true
+		case "-d":
+			fallthrough
+		case "--directory":
+			waitingFor = "directory"
+		case "-c":
+			fallthrough
+		case "--config-file":
+			waitingFor = "config-file"
+		default:
+			switch waitingFor {
+			case "directory":
+				waitingFor = ""
+				returnArgs.Directories = append(returnArgs.Directories, arg)
+			case "config-file":
+				waitingFor = ""
+				returnArgs.ConfigFile = arg
+			default:
+				return CommandLineArguments{}, errors.New(fmt.Sprintf("Unknown argument: %v", arg))
+			}
+		}
+	}
+	return returnArgs, nil
+}
+
 func getBaseDirectories(locations []string) []BaseDirectory {
 	var baseDirectories []BaseDirectory
 	for _, location := range locations {
@@ -80,8 +151,8 @@ func getBaseDirectories(locations []string) []BaseDirectory {
 	return baseDirectories
 }
 
-func loadFromConfiguration() (Configuration, error) {
-	opened, err := os.Open("configuration.json")
+func loadFromConfiguration(configFile string) (Configuration, error) {
+	opened, err := os.Open(configFile)
 	if err != nil {
 		return Configuration{}, err
 	}
@@ -228,14 +299,28 @@ func checksumFile(path string) (string, error) {
 }
 
 func careAboutDirectories(baseDirs []BaseDirectory, directories []Directory) error {
+	var highestSlashes int
 	for _, dir := range directories {
-		for _, baseDir := range baseDirs {
-			if baseDir != dir.baseDir {
-				dirPath := fmt.Sprintf("%v/%v", baseDir.path, dir.path)
-				if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-					err = os.Mkdir(dirPath, dir.mode)
-					if err != nil {
-						return err
+		slashCount := strings.Count(dir.path, "/")
+		if highestSlashes < slashCount {
+			highestSlashes = slashCount
+		}
+	}
+	var heightSortedDirectories = make([][]Directory, highestSlashes)
+	for _, dir := range directories {
+		slashCount := strings.Count(dir.path, "/")
+		heightSortedDirectories[slashCount-1] = append(heightSortedDirectories[slashCount-1], dir)
+	}
+	for _, directoryHeight := range heightSortedDirectories {
+		for _, dir := range directoryHeight {
+			for _, baseDir := range baseDirs {
+				if baseDir != dir.baseDir {
+					dirPath := fmt.Sprintf("%v/%v", baseDir.path, dir.path)
+					if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+						err = os.Mkdir(dirPath, dir.mode)
+						if err != nil {
+							return err
+						}
 					}
 				}
 			}
